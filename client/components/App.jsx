@@ -9,11 +9,9 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
   const peerConnection = useRef(null);
-  const transcriptionText = useRef("");
+  const transcriptionText = useRef({}); // Track transcription by item_id
   const currentItemId = useRef(null);
-  const outputTranscriptionText = useRef("");
-  const currentResponseId = useRef(null);
-  const promptSentForSession = useRef(false);
+  const sessionConfigured = useRef(false);
 
   async function startSession() {
     // Get a session token for OpenAI Realtime API
@@ -39,7 +37,7 @@ export default function App() {
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime/calls";
-    const model = "gpt-4o-realtime-preview-2024-12-17"; // Use conversation model, not transcription-only
+    const model = "gpt-4o-transcribe"; // Use transcription model
     const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
       body: offer.sdp,
@@ -50,7 +48,7 @@ export default function App() {
     });
 
     const sdp = await sdpResponse.text();
-    const answer = { type: "transcribe", sdp };
+    const answer = { type: "answer", sdp };
     await pc.setRemoteDescription(answer);
 
     peerConnection.current = pc;
@@ -113,23 +111,17 @@ export default function App() {
 
         console.log("Event:", event);
 
-
-        // Trigger response when input audio is committed
-        if (event.type === "input_audio_buffer.committed") {
-          sendClientEvent({ type: "response.create" });
-          return;
-        }
-        
-        // Filter events - we only want response.output_audio_transcript events (Persian translation)
+        // Filter events - only process transcription-related events
         const isTranscriptionEvent = 
-          event.type?.includes("output_audio_transcript");
+          event.type === "conversation.item.input_audio_transcription.delta" ||
+          event.type === "conversation.item.input_audio_transcription.completed" ||
+          event.type === "input_audio_buffer.committed";
         
         const isNonTranscriptionEvent = 
-          (event.type?.includes("response") && !event.type?.includes("output_audio_transcript")) ||
+          event.type?.includes("response") ||
           event.type?.includes("session.created") ||
           event.type?.includes("session.updated") ||
-          event.type?.includes("conversation.item") ||
-          (event.type?.includes("input_audio") && !event.type?.includes("committed"));
+          (event.type?.includes("conversation.item") && !event.type?.includes("input_audio_transcription"));
         
         // Only log transcription-related events
         if (isTranscriptionEvent) {
@@ -140,48 +132,73 @@ export default function App() {
         if (isNonTranscriptionEvent || !isTranscriptionEvent) {
           return; // Skip non-transcription events
         }
+
+        // Handle input_audio_buffer.committed - new speech turn started
+        if (event.type === "input_audio_buffer.committed") {
+          currentItemId.current = event.item_id;
+          transcriptionText.current[event.item_id] = "";
+          
+          // Clear previous transcriptions when new speech starts
+          setEvents((prev) => prev.filter((e) => !e.isTranscription || e.item_id !== event.item_id));
+          return; // Don't add committed event to log
+        }
         
-        // Handle response.output_audio_transcript.delta events (live streaming Persian translation)
-        if (event.type === "response.output_audio_transcript.delta" && event.delta) {
-          // Track output transcription by response_id
-          if (currentResponseId.current !== event.response_id) {
-            outputTranscriptionText.current = "";
-            currentResponseId.current = event.response_id;
+        // Handle conversation.item.input_audio_transcription.delta events (live streaming transcription)
+        // For gpt-4o-transcribe, delta contains incremental transcripts
+        if (event.type === "conversation.item.input_audio_transcription.delta" && event.delta) {
+          const itemId = event.item_id;
+          
+          // Initialize transcription text for this item if needed
+          if (!transcriptionText.current[itemId]) {
+            transcriptionText.current[itemId] = "";
           }
-          outputTranscriptionText.current += event.delta;
+          
+          // Append delta (for gpt-4o-transcribe, deltas are incremental)
+          transcriptionText.current[itemId] += event.delta;
+          
           const transcriptionEvent = {
-            type: "output_audio_transcript.live",
-            event_id: event.response_id || event.event_id,
-            text: outputTranscriptionText.current,
+            type: "input_audio_transcription.live",
+            event_id: event.event_id,
+            item_id: itemId,
+            text: transcriptionText.current[itemId],
             timestamp: event.timestamp || new Date().toLocaleTimeString(),
             isTranscription: true,
           };
+          
           setEvents((prev) => {
             const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+              (e) => !(e.isTranscription && e.item_id === itemId)
             );
             return [transcriptionEvent, ...filtered];
           });
           return; // Don't add the raw delta event to the log
         }
         
-        // Handle response.output_audio_transcript.done events (completed Persian translation)
-        if (event.type === "response.output_audio_transcript.done" && event.transcript) {
+        // Handle conversation.item.input_audio_transcription.completed events
+        if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript) {
+          const itemId = event.item_id;
+          
           const transcriptionEvent = {
-            type: "output_audio_transcript.completed",
+            type: "input_audio_transcription.completed",
             event_id: event.event_id,
+            item_id: itemId,
             text: event.transcript,
             timestamp: event.timestamp || new Date().toLocaleTimeString(),
             isTranscription: true,
           };
+          
           setEvents((prev) => {
             const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+              (e) => !(e.isTranscription && e.item_id === itemId)
             );
             return [transcriptionEvent, ...filtered];
           });
-          outputTranscriptionText.current = "";
-          currentResponseId.current = null;
+          
+          // Clean up transcription text for this item
+          delete transcriptionText.current[itemId];
+          if (currentItemId.current === itemId) {
+            currentItemId.current = null;
+          }
           return; // Don't add the original event again
         }
       });
@@ -190,21 +207,40 @@ export default function App() {
       dataChannel.addEventListener("open", () => {
         setIsSessionActive(true);
         setEvents([]);
-        transcriptionText.current = "";
+        transcriptionText.current = {};
         currentItemId.current = null;
-        outputTranscriptionText.current = "";
-        currentResponseId.current = null;
-        promptSentForSession.current = false;
+        sessionConfigured.current = false;
         
-        // Configure session to translate to Persian
+        // Configure transcription session
         sendClientEvent({
           type: "session.update",
           session: {
-            instructions: "You are a translator. When the user speaks in English, translate their speech to Persian (Farsi) and respond with only the Persian translation. Do not add any commentary or additional text, just provide the translation.",
-            modalities: ["text"],
-            voice: "alloy"
+            type: "transcription",
+            audio: {
+              input: {
+                format: {
+                  type: "audio/pcm",
+                  rate: 24000
+                },
+                noise_reduction: {
+                  type: "near_field"
+                },
+                transcription: {
+                  model: "gpt-4o-transcribe",
+                  language: "en",
+                  prompt: "Transcribe the English speech and translate it to Persian (Farsi). Only provide the Persian translation."
+                },
+                turn_detection: {
+                  type: "server_vad",
+                  threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 500
+                }
+              }
+            }
           },
         });
+        sessionConfigured.current = true;
       });
     }
   }, [dataChannel]);
