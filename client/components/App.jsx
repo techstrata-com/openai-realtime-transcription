@@ -145,7 +145,11 @@ export default function App() {
                 instructions: "Transcribe text from English voice to Persian (Farsi). Only transcribe, do not respond with audio.",
                 modalities: ["text"], // Text only, no audio output
                 input_audio_transcription: {
-                  model: "whisper-1"
+                  model: "gpt-realtime-transcribe",
+                  prompt: "Transcribe text from English voice to Persian (Farsi). Only transcribe, do not respond with audio.",
+                },
+                turn_detection: {
+                  type: "semantic_vad",
                 }
               },
             });
