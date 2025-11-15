@@ -12,6 +12,8 @@ export default function App() {
   const audioElement = useRef(null);
   const transcriptionText = useRef("");
   const currentTranscriptionId = useRef(null);
+  const outputTranscriptionText = useRef("");
+  const currentOutputTranscriptionId = useRef(null);
   const promptSentForSession = useRef(false);
 
   async function startSession() {
@@ -139,6 +141,11 @@ export default function App() {
         if (event.type === "input_audio_buffer.speech_started") {
           transcriptionText.current = "";
           currentTranscriptionId.current = event.event_id;
+          outputTranscriptionText.current = "";
+          currentOutputTranscriptionId.current = null;
+          
+          // Clear previous transcriptions when new speech starts
+          setEvents((prev) => prev.filter((e) => !e.isTranscription));
           
           // Send prompt/instructions when audio input starts
           // Option 1: Send session update (once per session) - sets instructions for the whole session
@@ -180,6 +187,52 @@ export default function App() {
             return [transcriptionEvent, ...filtered];
           });
           return; // Don't add the raw delta event to the log
+        }
+        
+        // Handle output transcription (Persian/Farsi text from OpenAI)
+        if (event.type === "response.output_audio_transcript.delta" && event.delta) {
+          // Accumulate output transcription deltas
+          if (!currentOutputTranscriptionId.current) {
+            outputTranscriptionText.current = "";
+            currentOutputTranscriptionId.current = event.response_id || event.event_id;
+          }
+          outputTranscriptionText.current += event.delta;
+          const transcriptionEvent = {
+            type: "response.output_audio_transcript.live",
+            event_id: currentOutputTranscriptionId.current,
+            text: outputTranscriptionText.current,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+            isOutput: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.isOutput && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          return; // Don't add the raw delta event to the log
+        }
+        
+        // Handle output transcription completed
+        if (event.type === "response.output_audio_transcript.done" && event.transcript) {
+          const transcriptionEvent = {
+            type: "response.output_audio_transcript.completed",
+            event_id: event.event_id,
+            text: event.transcript,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+            isOutput: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.isOutput && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          outputTranscriptionText.current = "";
+          currentOutputTranscriptionId.current = null;
+          return; // Don't add the original event again
         }
         
         // Handle input audio transcription completed events
@@ -233,6 +286,8 @@ export default function App() {
         setEvents([]);
         transcriptionText.current = "";
         currentTranscriptionId.current = null;
+        outputTranscriptionText.current = "";
+        currentOutputTranscriptionId.current = null;
         promptSentForSession.current = false;
       });
     }
