@@ -114,16 +114,14 @@ export default function App() {
         console.log("Event:", event);
 
 
-        // Filter out non-transcription events (but allow transcription events)
+        // Filter out non-transcription events (only allow input transcription events, not responses)
         const isTranscriptionEvent = 
           event.type?.includes("input_audio_transcription") ||
-          event.type?.includes("output_audio_transcript") ||
           event.type?.includes("input_audio_buffer.committed");
         
         const isNonTranscriptionEvent = 
-          (event.type?.includes("response") && 
-           !event.type?.includes("output_audio_transcript") && 
-           !event.type?.includes("input_audio_transcription")) ||
+          event.type?.includes("response") || // Filter out all response events
+          event.type?.includes("output_audio_transcript") || // Filter out output transcriptions (model responses)
           event.type?.includes("session.created") ||
           event.type?.includes("session.updated");
         
@@ -147,12 +145,13 @@ export default function App() {
           // Clear previous transcriptions when new speech starts
           setEvents((prev) => prev.filter((e) => !e.isTranscription));
           
-          // Configure transcription session on first commit
+          // Configure transcription session on first commit (transcription only, no responses)
           if (!promptSentForSession.current) {
             sendClientEvent({
               type: "session.update",
               session: {
                 type: "transcription",
+                modalities: ["text"], // Text only, no audio output/responses
                 audio: {
                   input: {
                     format: {
@@ -227,49 +226,7 @@ export default function App() {
           return; // Don't add the original event again
         }
         
-        // Handle response.output_audio_transcript.delta events (live streaming transcription)
-        if (event.type === "response.output_audio_transcript.delta" && event.delta) {
-          // Track output transcription by response_id
-          if (currentResponseId.current !== event.response_id) {
-            outputTranscriptionText.current = "";
-            currentResponseId.current = event.response_id;
-          }
-          outputTranscriptionText.current += event.delta;
-          const transcriptionEvent = {
-            type: "output_audio_transcript.live",
-            event_id: event.response_id || event.event_id,
-            text: outputTranscriptionText.current,
-            timestamp: event.timestamp || new Date().toLocaleTimeString(),
-            isTranscription: true,
-          };
-          setEvents((prev) => {
-            const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
-            );
-            return [transcriptionEvent, ...filtered];
-          });
-          return; // Don't add the raw delta event to the log
-        }
-        
-        // Handle response.output_audio_transcript.done events (completed transcription)
-        if (event.type === "response.output_audio_transcript.done" && event.transcript) {
-          const transcriptionEvent = {
-            type: "output_audio_transcript.completed",
-            event_id: event.event_id,
-            text: event.transcript,
-            timestamp: event.timestamp || new Date().toLocaleTimeString(),
-            isTranscription: true,
-          };
-          setEvents((prev) => {
-            const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
-            );
-            return [transcriptionEvent, ...filtered];
-          });
-          outputTranscriptionText.current = "";
-          currentResponseId.current = null;
-          return; // Don't add the original event again
-        }
+        // Removed response.output_audio_transcript handling - we only want input transcription, not model responses
       });
 
       // Set session active when the data channel is opened
