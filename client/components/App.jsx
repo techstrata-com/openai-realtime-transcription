@@ -73,7 +73,7 @@ export default function App() {
       body: formData,
       headers: {
         Authorization: `Bearer ${EPHEMERAL_KEY}`,
-        "OpenAI-Beta": "realtime=v1",
+        "Content-Type": "application/sdp",
       },
     });
 
