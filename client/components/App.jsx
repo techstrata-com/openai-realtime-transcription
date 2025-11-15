@@ -109,9 +109,27 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
-        console.log("Event received:", event);
+        // Filter out conversation and non-transcription events
+        const isConversationEvent = 
+          event.type?.includes("conversation") ||
+          event.type?.includes("response") ||
+          event.type?.includes("session.created") ||
+          event.type?.includes("session.updated");
+        
+        // Only log transcription-related events
+        if (event.type?.includes("transcription") || event.type?.includes("speech")) {
+          console.log("Transcription event:", event.type, event);
+        }
+        
+        // Skip all conversation and non-transcription events
+        if (isConversationEvent || 
+            (!event.type?.includes("transcription") && 
+             !event.type?.includes("speech_started") &&
+             !event.type?.includes("input_audio_buffer"))) {
+          return; // Skip non-transcription events
+        }
 
-        // Handle speech started events - reset transcription tracking and send prompt
+        // Handle speech started events - reset transcription tracking
         if (event.type === "input_audio_buffer.speech_started") {
           transcriptionText.current = "";
           currentTranscriptionId.current = event.event_id;
@@ -134,6 +152,7 @@ export default function App() {
             });
             promptSentForSession.current = true;
           }
+          return; // Don't add speech_started event to log
         }
         
         // Handle input audio transcription delta events (live streaming transcription)
@@ -174,10 +193,25 @@ export default function App() {
           currentTranscriptionId.current = null;
           return; // Don't add the original event again
         }
-
-        // Only add transcription-related events, ignore all other events
-        if (!event.type?.includes("transcription") && !event.type?.includes("speech_started")) {
-          return; // Skip non-transcription events
+        
+        // Handle any other transcription events with transcript field
+        if (event.transcript && event.type?.includes("transcription")) {
+          const transcriptionEvent = {
+            type: event.type || "input_audio_transcription",
+            event_id: event.event_id,
+            text: event.transcript,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          transcriptionText.current = "";
+          currentTranscriptionId.current = null;
+          return;
         }
       });
 
