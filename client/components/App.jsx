@@ -10,6 +10,8 @@ export default function App() {
   const [dataChannel, setDataChannel] = useState(null);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
+  const transcriptionText = useRef("");
+  const currentTranscriptionId = useRef(null);
 
   async function startSession() {
     // Get a session token for OpenAI Realtime API
@@ -40,7 +42,7 @@ export default function App() {
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime/calls";
-    const model = "gpt-realtime";
+    const model = "gpt-realtime-transcribe";
     const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
       body: offer.sdp,
@@ -130,7 +132,56 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
-        console.log(e)
+        console.log(e);
+
+        // Handle transcription events
+        if (event.type === "input_audio_buffer.speech_started") {
+          // Reset transcription when new speech starts
+          transcriptionText.current = "";
+          currentTranscriptionId.current = event.event_id;
+        } else if (event.type === "input_audio_buffer.transcription.delta") {
+          // Accumulate transcription deltas
+          if (event.delta) {
+            transcriptionText.current += event.delta;
+            // Create or update a transcription event in the log
+            const transcriptionEvent = {
+              type: "input_audio_buffer.transcription.live",
+              event_id: currentTranscriptionId.current || event.event_id,
+              text: transcriptionText.current,
+              timestamp: event.timestamp || new Date().toLocaleTimeString(),
+              isTranscription: true,
+            };
+            // Remove previous transcription event if it exists
+            setEvents((prev) => {
+              const filtered = prev.filter(
+                (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+              );
+              return [transcriptionEvent, ...filtered];
+            });
+          }
+          return; // Don't add the raw delta event to the log
+        } else if (event.type === "input_audio_buffer.transcription.completed") {
+          // Finalize transcription
+          if (event.transcript) {
+            transcriptionText.current = event.transcript;
+            const transcriptionEvent = {
+              type: "input_audio_buffer.transcription.completed",
+              event_id: event.event_id,
+              text: event.transcript,
+              timestamp: event.timestamp || new Date().toLocaleTimeString(),
+              isTranscription: true,
+            };
+            setEvents((prev) => {
+              const filtered = prev.filter(
+                (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+              );
+              return [transcriptionEvent, event, ...filtered];
+            });
+            transcriptionText.current = "";
+            currentTranscriptionId.current = null;
+            return; // Don't add the original event again
+          }
+        }
 
         setEvents((prev) => [event, ...prev]);
       });
@@ -139,6 +190,8 @@ export default function App() {
       dataChannel.addEventListener("open", () => {
         setIsSessionActive(true);
         setEvents([]);
+        transcriptionText.current = "";
+        currentTranscriptionId.current = null;
       });
     }
   }, [dataChannel]);
