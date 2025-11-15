@@ -30,20 +30,50 @@ export default function App() {
 
     // Set up data channel for sending and receiving events
     const dc = pc.createDataChannel("oai-events");
-    setDataChannel(dc);
-
+    
     // Start the session using the Session Description Protocol (SDP)
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime/calls";
     const model = "gpt-4o-transcribe"; // Use transcription model
+    
+    // Create FormData with SDP and session configuration for transcription
+    const formData = new FormData();
+    formData.append("sdp", offer.sdp);
+    formData.append("session", JSON.stringify({
+      type: "transcription",
+      audio: {
+        input: {
+          format: {
+            type: "audio/pcm",
+            rate: 24000
+          },
+          noise_reduction: {
+            type: "near_field"
+          },
+          transcription: {
+            model: "gpt-4o-transcribe-latest",
+            language: "en",
+            prompt: "Transcribe the English speech and translate it to Persian (Farsi). Only provide the Persian translation."
+          },
+          turn_detection: {
+            type: "semantic_vad",
+            eagerness: 0.5
+          }
+        }
+      },
+      include: [
+        "item.input_audio_transcription.logprobs"
+      ]
+    }));
+    
     const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
-      body: offer.sdp,
+      body: formData,
       headers: {
         Authorization: `Bearer ${EPHEMERAL_KEY}`,
-        "Content-Type": "application/sdp",
+        "OpenAI-Beta": "realtime=v1",
       },
     });
 
@@ -51,6 +81,8 @@ export default function App() {
     const answer = { type: "answer", sdp };
     await pc.setRemoteDescription(answer);
 
+    // Set data channel after connection is established
+    setDataChannel(dc);
     peerConnection.current = pc;
   }
 
@@ -111,26 +143,34 @@ export default function App() {
 
         console.log("Event:", event);
 
+        // Log all events for debugging
+        console.log("Event received:", event.type, event);
+        
         // Filter events - only process transcription-related events
         const isTranscriptionEvent = 
           event.type === "conversation.item.input_audio_transcription.delta" ||
           event.type === "conversation.item.input_audio_transcription.completed" ||
-          event.type === "input_audio_buffer.committed";
+          event.type === "input_audio_buffer.committed" ||
+          event.type === "input_audio_buffer.speech_started";
         
         const isNonTranscriptionEvent = 
           event.type?.includes("response") ||
-          event.type?.includes("session.created") ||
-          event.type?.includes("session.updated") ||
           (event.type?.includes("conversation.item") && !event.type?.includes("input_audio_transcription"));
         
-        // Only log transcription-related events
+        // Log transcription-related events
         if (isTranscriptionEvent) {
-          console.log("Transcription event:", event.type, event);
+          console.log("✓ Transcription event:", event.type, event);
         }
         
-        // Skip non-transcription events
-        if (isNonTranscriptionEvent || !isTranscriptionEvent) {
+        // Skip non-transcription events (but allow session events for debugging)
+        if (isNonTranscriptionEvent && !event.type?.includes("session")) {
           return; // Skip non-transcription events
+        }
+        
+        // Handle session events for debugging
+        if (event.type?.includes("session")) {
+          console.log("Session event:", event.type, event);
+          return;
         }
 
         // Handle input_audio_buffer.committed - new speech turn started
@@ -209,45 +249,7 @@ export default function App() {
         setEvents([]);
         transcriptionText.current = {};
         currentItemId.current = null;
-        sessionConfigured.current = false;
-        
-        // Configure transcription session
-        sendClientEvent({
-          type: "session.update",
-          session: {
-            type: "transcription",
-            audio: {
-              input: {
-                format: {
-                  type: "audio/pcm",
-                  rate: 24000
-                },
-                noise_reduction: {
-                  type: "near_field"
-                },
-                transcription: {
-                  model: "gpt-4o-transcribe-latest",
-                  language: "en",
-                  prompt: "Transcribe the English speech and translate it to Persian (Farsi). Only provide the Persian translation."
-                },
-                turn_detection: {
-                  type: "semantic_vad",
-                  threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 500,
-                  eagerness: 'high',
-                  create_response: true,
-                  interrupt_response: true,
-                },
-              }
-            },
-            "include": [
-              "item.input_audio_transcription.logprobs"
-            ]
-        
-          },
-        });
-        sessionConfigured.current = true;
+        sessionConfigured.current = true; // Session already configured during SDP exchange
       });
     }
   }, [dataChannel]);
