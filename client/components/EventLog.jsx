@@ -7,6 +7,9 @@ function Event({ event, timestamp }) {
   const isClient = event.event_id && !event.event_id.startsWith("event_");
   const isTranscription = event.isTranscription;
 
+  console.log(event);
+  
+
   // Special rendering for transcription events
   if (isTranscription) {
     const isLive = event.type === "input_audio_buffer.transcription.live";
