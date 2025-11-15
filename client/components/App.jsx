@@ -37,7 +37,7 @@ export default function App() {
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime/calls";
-    const model = "gpt-realtime-transcribe";
+    const model = "gpt-4o-transcribe";
     const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
       body: offer.sdp,
@@ -108,6 +108,9 @@ export default function App() {
         if (!event.timestamp) {
           event.timestamp = new Date().toLocaleTimeString();
         }
+
+        console.log("Event:", event);
+
 
         // Filter out non-transcription events (but allow conversation.item.input_audio_transcription events)
         const isTranscriptionEvent = 
