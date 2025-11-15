@@ -50,7 +50,7 @@ export default function App() {
     });
 
     const sdp = await sdpResponse.text();
-    const answer = { type: "answer", sdp };
+    const answer = { type: "transcribe", sdp };
     await pc.setRemoteDescription(answer);
 
     peerConnection.current = pc;
@@ -201,7 +201,7 @@ export default function App() {
           type: "session.update",
           session: {
             instructions: "You are a translator. When the user speaks in English, translate their speech to Persian (Farsi) and respond with only the Persian translation. Do not add any commentary or additional text, just provide the translation.",
-            modalities: ["audio", "text"],
+            modalities: ["text"],
             voice: "alloy"
           },
         });
