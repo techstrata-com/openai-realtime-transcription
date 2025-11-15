@@ -157,6 +157,7 @@ export default function App() {
           }
         }
         
+        print(event)
         // Handle input audio transcription delta events (live updates)
         if (event.type === "input_audio_buffer.transcription.delta" && event.delta) {
           transcriptionText.current += event.delta;
