@@ -9,11 +9,8 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
   const peerConnection = useRef(null);
-  const audioElement = useRef(null);
   const transcriptionText = useRef("");
   const currentTranscriptionId = useRef(null);
-  const outputTranscriptionText = useRef("");
-  const currentOutputTranscriptionId = useRef(null);
   const promptSentForSession = useRef(false);
 
   async function startSession() {
@@ -25,12 +22,7 @@ export default function App() {
     // Create a peer connection
     const pc = new RTCPeerConnection();
 
-    // Set up to play remote audio from the model
-    audioElement.current = document.createElement("audio");
-    audioElement.current.autoplay = true;
-    pc.ontrack = (e) => (audioElement.current.srcObject = e.streams[0]);
-
-    // Add local audio track for microphone input in the browser
+    // Add local audio track for microphone input in the browser (STT only - no audio output)
     const ms = await navigator.mediaDevices.getUserMedia({
       audio: true,
     });
@@ -141,32 +133,24 @@ export default function App() {
         if (event.type === "input_audio_buffer.speech_started") {
           transcriptionText.current = "";
           currentTranscriptionId.current = event.event_id;
-          outputTranscriptionText.current = "";
-          currentOutputTranscriptionId.current = null;
           
           // Clear previous transcriptions when new speech starts
           setEvents((prev) => prev.filter((e) => !e.isTranscription));
           
-          // Send prompt/instructions when audio input starts
-          // Option 1: Send session update (once per session) - sets instructions for the whole session
+          // Send prompt/instructions when audio input starts (STT only - no response needed)
           if (!promptSentForSession.current) {
             sendClientEvent({
               type: "session.update",
               session: {
-                instructions: "Transcribe text from English voice to Persian (Farsi).",
+                instructions: "Transcribe text from English voice to Persian (Farsi). Only transcribe, do not respond with audio.",
+                modalities: ["text"], // Text only, no audio output
+                input_audio_transcription: {
+                  model: "whisper-1"
+                }
               },
             });
             promptSentForSession.current = true;
           }
-          
-          // Option 2: Send response.create with instructions for this specific interaction
-          // This triggers the model to respond to the audio input
-          sendClientEvent({
-            type: "response.create",
-            response: {
-              instructions: "Transcribe text from English voice to Persian (Farsi).",
-            },
-          });
         }
         
         // Handle input audio transcription delta events (live updates)
@@ -189,76 +173,18 @@ export default function App() {
           return; // Don't add the raw delta event to the log
         }
         
-        // Handle output transcription (Persian/Farsi text from OpenAI)
-        if (event.type === "response.output_audio_transcript.delta" && event.delta) {
-          // Accumulate output transcription deltas
-          if (!currentOutputTranscriptionId.current) {
-            outputTranscriptionText.current = "";
-            currentOutputTranscriptionId.current = event.response_id || event.event_id;
-          }
-          outputTranscriptionText.current += event.delta;
-          const transcriptionEvent = {
-            type: "response.output_audio_transcript.live",
-            event_id: currentOutputTranscriptionId.current,
-            text: outputTranscriptionText.current,
-            timestamp: event.timestamp || new Date().toLocaleTimeString(),
-            isTranscription: true,
-            isOutput: true,
-          };
-          setEvents((prev) => {
-            const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.isOutput && e.event_id === transcriptionEvent.event_id)
-            );
-            return [transcriptionEvent, ...filtered];
-          });
-          return; // Don't add the raw delta event to the log
-        }
-        
-        // Handle output transcription completed
-        if (event.type === "response.output_audio_transcript.done" && event.transcript) {
-          const transcriptionEvent = {
-            type: "response.output_audio_transcript.completed",
-            event_id: event.event_id,
-            text: event.transcript,
-            timestamp: event.timestamp || new Date().toLocaleTimeString(),
-            isTranscription: true,
-            isOutput: true,
-          };
-          setEvents((prev) => {
-            const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.isOutput && e.event_id === transcriptionEvent.event_id)
-            );
-            return [transcriptionEvent, ...filtered];
-          });
-          outputTranscriptionText.current = "";
-          currentOutputTranscriptionId.current = null;
-          return; // Don't add the original event again
-        }
-        
-        // Handle input audio transcription completed events
-        // Check for various possible event types and structures
-        const isInputTranscriptionEvent = 
-          (event.type?.includes("input_audio") && 
-           (event.type?.includes("transcription") || event.type?.includes("transcript"))) ||
-          (event.type?.includes("conversation.item") && 
-           event.item?.type === "message" && 
-           event.item?.role === "user" &&
-           event.item?.content?.some(c => c.type === "input_audio_transcript"));
-        
-        // Check if event has transcript field and is input-related (not output/response)
-        const hasInputTranscript = 
-          event.transcript && 
-          !event.type?.includes("response") && 
-          !event.type?.includes("output_audio");
-        
-        if (isInputTranscriptionEvent || hasInputTranscript) {
-          const transcriptText = event.transcript || 
-            event.item?.content?.find(c => c.type === "input_audio_transcript")?.transcript ||
-            event.transcription?.text;
+        // STT only - no output transcription handling needed
+        // Handle input audio transcription completed events (Persian/Farsi transcription)
+        // Check for conversation items with transcribed text
+        if (event.type === "conversation.item.input_audio_transcription.completed" || 
+            (event.type === "conversation.item.create" && 
+             event.item?.content?.some(c => c.type === "input_audio_transcription"))) {
+          const transcriptContent = event.item?.content?.find(c => c.type === "input_audio_transcription");
+          const transcriptText = transcriptContent?.transcript || event.transcript;
           
           if (transcriptText) {
             const transcriptionEvent = {
-              type: event.type || "input_audio_buffer.transcription.completed",
+              type: "input_audio_transcription.completed",
               event_id: event.event_id,
               text: transcriptText,
               timestamp: event.timestamp || new Date().toLocaleTimeString(),
@@ -276,6 +202,30 @@ export default function App() {
             return; // Don't add the original event again
           }
         }
+        
+        // Handle any other input transcription events with transcript field
+        if (event.transcript && 
+            !event.type?.includes("response") && 
+            !event.type?.includes("output_audio") &&
+            (event.type?.includes("input_audio") || event.type?.includes("transcription"))) {
+          const transcriptionEvent = {
+            type: event.type || "input_audio_transcription.completed",
+            event_id: event.event_id,
+            text: event.transcript,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+            isInput: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.isInput && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          transcriptionText.current = "";
+          currentTranscriptionId.current = null;
+          return; // Don't add the original event again
+        }
 
         setEvents((prev) => [event, ...prev]);
       });
@@ -286,8 +236,6 @@ export default function App() {
         setEvents([]);
         transcriptionText.current = "";
         currentTranscriptionId.current = null;
-        outputTranscriptionText.current = "";
-        currentOutputTranscriptionId.current = null;
         promptSentForSession.current = false;
       });
     }
