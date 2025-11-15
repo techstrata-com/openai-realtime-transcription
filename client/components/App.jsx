@@ -234,8 +234,11 @@ export default function App() {
                   type: "semantic_vad",
                   threshold: 0.5,
                   prefix_padding_ms: 300,
-                  silence_duration_ms: 500
-                }
+                  silence_duration_ms: 500,
+                  eagerness: 'high',
+                  create_response: true,
+                  interrupt_response: true,
+                },
               }
             },
             "include": [
