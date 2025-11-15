@@ -12,6 +12,7 @@ export default function App() {
   const audioElement = useRef(null);
   const transcriptionText = useRef("");
   const currentTranscriptionId = useRef(null);
+  const promptSentForSession = useRef(false);
 
   async function startSession() {
     // Get a session token for OpenAI Realtime API
@@ -134,10 +135,31 @@ export default function App() {
 
         console.log("Event received:", event);
 
-        // Handle speech started events - reset transcription tracking
+        // Handle speech started events - reset transcription tracking and send prompt
         if (event.type === "input_audio_buffer.speech_started") {
           transcriptionText.current = "";
           currentTranscriptionId.current = event.event_id;
+          
+          // Send prompt/instructions when audio input starts
+          // Option 1: Send session update (once per session) - sets instructions for the whole session
+          if (!promptSentForSession.current) {
+            sendClientEvent({
+              type: "session.update",
+              session: {
+                instructions: "Transcribe text from English voice to Persian (Farsi).",
+              },
+            });
+            promptSentForSession.current = true;
+          }
+          
+          // Option 2: Send response.create with instructions for this specific interaction
+          // This triggers the model to respond to the audio input
+          sendClientEvent({
+            type: "response.create",
+            response: {
+              instructions: "Transcribe text from English voice to Persian (Farsi).",
+            },
+          });
         }
         
         // Handle input audio transcription delta events (live updates)
@@ -211,6 +233,7 @@ export default function App() {
         setEvents([]);
         transcriptionText.current = "";
         currentTranscriptionId.current = null;
+        promptSentForSession.current = false;
       });
     }
   }, [dataChannel]);
