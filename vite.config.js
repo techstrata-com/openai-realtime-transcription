@@ -8,6 +8,6 @@ export default {
   root: join(dirname(path), "client"),
   plugins: [react()],
   server: {
-    allowedHosts: ["tr.oriele.ai"],
+    allowedHosts: ["rt.oriele.ai"],
   },
 };
