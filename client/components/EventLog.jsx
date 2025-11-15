@@ -6,53 +6,30 @@ function Event({ event, timestamp }) {
 
   const isClient = event.event_id && !event.event_id.startsWith("event_");
   const isTranscription = event.isTranscription;
+  const isInputTranscription = event.isTranscription && event.isInput;
 
-  console.log(event);
-  
+  // Special rendering for input audio transcription events
+  if (event.transcript) {
 
-  // Special rendering for transcription events
-  if (isTranscription) {
-    const isLive = event.type === "input_audio_buffer.transcription.live";
-    return (
-      <div className="flex flex-col gap-2 p-3 rounded-md bg-blue-50 border-2 border-blue-200">
-        <div className="flex items-center gap-2">
-          <div className="text-sm font-semibold text-blue-700">
-            🎤 Microphone Input {isLive ? "(live)" : "(completed)"}
+    if (event.type === "output_audio_transcript.done") {
+      const isLive = event.type === "output_audio_transcript.done";
+      return (
+        <div className="flex flex-col gap-2 p-3 rounded-md bg-blue-50 border-2 border-blue-200">
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold text-blue-700">
+              🎤 Microphone Input {isLive ? "(live)" : "(completed)"}
+            </div>
+            <div className="text-xs text-gray-500 ml-auto">{timestamp}</div>
           </div>
-          <div className="text-xs text-gray-500 ml-auto">{timestamp}</div>
+          <div className="text-base text-gray-800 bg-white p-3 rounded-md border border-blue-200">
+            {event.text || event.transcript || "..."}
+          </div>
         </div>
-        <div className="text-base text-gray-800 bg-white p-3 rounded-md border border-blue-200">
-          {event.text || "..."}
-        </div>
-      </div>
-    );
+      );
+    }
   }
 
-  return (
-    <div className="flex flex-col gap-2 p-2 rounded-md bg-gray-50">
-      <div
-        className="flex items-center gap-2 cursor-pointer"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        {isClient ? (
-          <ArrowDown className="text-blue-400" />
-        ) : (
-          <ArrowUp className="text-green-400" />
-        )}
-        <div className="text-sm text-gray-500">
-          {isClient ? "client:" : "server:"}
-          &nbsp;{event.type} | {timestamp}
-        </div>
-      </div>
-      <div
-        className={`text-gray-500 bg-gray-200 p-2 rounded-md overflow-x-auto ${
-          isExpanded ? "block" : "hidden"
-        }`}
-      >
-        <pre className="text-xs">{JSON.stringify(event, null, 2)}</pre>
-      </div>
-    </div>
-  );
+ 
 }
 
 export default function EventLog({ events }) {
