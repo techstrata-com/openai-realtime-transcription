@@ -1,15 +1,16 @@
 export default function EventLog({ events }) {
+  
+  
   // Filter to only output transcription events (STT - Persian/Farsi text from English voice)
   const transcriptionEvents = events.filter(
     (event) => 
       (event.isTranscription && event.isoutput) ||
-      event.type?.includes("output_audio_transcription") ||
-      event.type?.includes("output_audio_buffer.transcription")
+      event.type?.includes("transcript")
   );
 
   // Get the most recent live transcription or the latest completed one
   const liveTranscription = transcriptionEvents.find(
-    (e) => e.type === "output_audio_buffer.transcription.delta" || e.type?.includes("transcription.delta")
+    (e) => e.type === "response.output_audio_transcript.delta" || e.type?.includes("transcript.delta")
   );
 
   const latestTranscription = liveTranscription || 
