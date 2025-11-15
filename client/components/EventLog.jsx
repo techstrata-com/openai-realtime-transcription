@@ -1,15 +1,15 @@
 export default function EventLog({ events }) {
-  // Filter to only input transcription events (STT - Persian/Farsi text from English voice)
+  // Filter to only output transcription events (STT - Persian/Farsi text from English voice)
   const transcriptionEvents = events.filter(
     (event) => 
-      (event.isTranscription && event.isInput) ||
-      event.type?.includes("input_audio_transcription") ||
-      event.type?.includes("input_audio_buffer.transcription")
+      (event.isTranscription && event.isoutput) ||
+      event.type?.includes("output_audio_transcription") ||
+      event.type?.includes("output_audio_buffer.transcription")
   );
 
   // Get the most recent live transcription or the latest completed one
   const liveTranscription = transcriptionEvents.find(
-    (e) => e.type === "input_audio_buffer.transcription.live" || e.type?.includes("transcription.live")
+    (e) => e.type === "output_audio_buffer.transcription.delta" || e.type?.includes("transcription.delta")
   );
 
   const latestTranscription = liveTranscription || 
@@ -22,9 +22,6 @@ export default function EventLog({ events }) {
     <div className="flex flex-col gap-2 overflow-x-auto h-full">
       {transcriptionText ? (
         <div className="flex flex-col gap-2 p-4">
-          <div className="text-sm font-semibold text-blue-700 mb-2">
-            🎤 Transcribed Text (Persian/Farsi)
-          </div>
           <div className="text-lg text-gray-800 bg-white p-4 rounded-md border-2 border-blue-200 min-h-[100px] whitespace-pre-wrap">
             {transcriptionText}
             {liveTranscription && (
