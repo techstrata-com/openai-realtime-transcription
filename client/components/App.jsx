@@ -130,6 +130,8 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
+        console.log(e)
+
         setEvents((prev) => [event, ...prev]);
       });
 
