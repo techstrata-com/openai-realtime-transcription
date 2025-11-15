@@ -11,6 +11,8 @@ export default function App() {
   const peerConnection = useRef(null);
   const transcriptionText = useRef("");
   const currentItemId = useRef(null);
+  const outputTranscriptionText = useRef("");
+  const currentResponseId = useRef(null);
   const promptSentForSession = useRef(false);
 
   async function startSession() {
@@ -112,13 +114,16 @@ export default function App() {
         console.log("Event:", event);
 
 
-        // Filter out non-transcription events (but allow conversation.item.input_audio_transcription events)
+        // Filter out non-transcription events (but allow transcription events)
         const isTranscriptionEvent = 
           event.type?.includes("input_audio_transcription") ||
+          event.type?.includes("output_audio_transcript") ||
           event.type?.includes("input_audio_buffer.committed");
         
         const isNonTranscriptionEvent = 
-          (event.type?.includes("response") && !event.type?.includes("input_audio_transcription")) ||
+          (event.type?.includes("response") && 
+           !event.type?.includes("output_audio_transcript") && 
+           !event.type?.includes("input_audio_transcription")) ||
           event.type?.includes("session.created") ||
           event.type?.includes("session.updated");
         
@@ -221,6 +226,50 @@ export default function App() {
           }
           return; // Don't add the original event again
         }
+        
+        // Handle response.output_audio_transcript.delta events (live streaming transcription)
+        if (event.type === "response.output_audio_transcript.delta" && event.delta) {
+          // Track output transcription by response_id
+          if (currentResponseId.current !== event.response_id) {
+            outputTranscriptionText.current = "";
+            currentResponseId.current = event.response_id;
+          }
+          outputTranscriptionText.current += event.delta;
+          const transcriptionEvent = {
+            type: "output_audio_transcript.live",
+            event_id: event.response_id || event.event_id,
+            text: outputTranscriptionText.current,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          return; // Don't add the raw delta event to the log
+        }
+        
+        // Handle response.output_audio_transcript.done events (completed transcription)
+        if (event.type === "response.output_audio_transcript.done" && event.transcript) {
+          const transcriptionEvent = {
+            type: "output_audio_transcript.completed",
+            event_id: event.event_id,
+            text: event.transcript,
+            timestamp: event.timestamp || new Date().toLocaleTimeString(),
+            isTranscription: true,
+          };
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
+            );
+            return [transcriptionEvent, ...filtered];
+          });
+          outputTranscriptionText.current = "";
+          currentResponseId.current = null;
+          return; // Don't add the original event again
+        }
       });
 
       // Set session active when the data channel is opened
@@ -229,6 +278,8 @@ export default function App() {
         setEvents([]);
         transcriptionText.current = "";
         currentItemId.current = null;
+        outputTranscriptionText.current = "";
+        currentResponseId.current = null;
         promptSentForSession.current = false;
       });
     }

@@ -6,7 +6,7 @@ export default function EventLog({ events }) {
 
   // Get the most recent live transcription or the latest completed one
   const liveTranscription = transcriptionEvents.find(
-    (e) => e.type === "input_audio_transcription.live"
+    (e) => e.type === "input_audio_transcription.live" || e.type === "output_audio_transcript.live"
   );
 
   const latestTranscription = liveTranscription || 
