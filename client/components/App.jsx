@@ -97,25 +97,7 @@ export default function App() {
     }
   }
 
-  // Send a text message to the model
-  function sendTextMessage(message) {
-    const event = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
-      },
-    };
-
-    sendClientEvent(event);
-    sendClientEvent({ type: "response.create" });
-  }
+  // Removed sendTextMessage - transcription only, no conversation
 
   // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
@@ -137,19 +119,16 @@ export default function App() {
           // Clear previous transcriptions when new speech starts
           setEvents((prev) => prev.filter((e) => !e.isTranscription));
           
-          // Send prompt/instructions when audio input starts (STT only - no response needed)
+          // Configure transcription when audio input starts (STT only)
           if (!promptSentForSession.current) {
             sendClientEvent({
               type: "session.update",
               session: {
-                instructions: "Transcribe text from English voice to Persian (Farsi). Only transcribe, do not respond with audio.",
-                modalities: ["text"], // Text only, no audio output
                 input_audio_transcription: {
-                  model: "gpt-realtime-transcribe",
-                  prompt: "Transcribe text from English voice to Persian (Farsi). Only transcribe, do not respond with audio.",
+                  model: "whisper-1",
                 },
                 turn_detection: {
-                  type: "semantic_vad",
+                  type: "server_vad",
                 }
               },
             });
@@ -157,8 +136,7 @@ export default function App() {
           }
         }
         
-        console.log(event)
-        // Handle input audio transcription delta events (live updates)
+        // Handle input audio transcription delta events (live streaming transcription)
         if (event.type === "input_audio_buffer.transcription.delta" && event.delta) {
           transcriptionText.current += event.delta;
           const transcriptionEvent = {
@@ -167,63 +145,28 @@ export default function App() {
             text: transcriptionText.current,
             timestamp: event.timestamp || new Date().toLocaleTimeString(),
             isTranscription: true,
-            isInput: true,
           };
           setEvents((prev) => {
             const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.isInput && e.event_id === transcriptionEvent.event_id)
+              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
             );
             return [transcriptionEvent, ...filtered];
           });
           return; // Don't add the raw delta event to the log
         }
         
-        // STT only - no output transcription handling needed
-        // Handle input audio transcription completed events (Persian/Farsi transcription)
-        // Check for conversation items with transcribed text
-        if (event.type === "conversation.item.input_audio_transcription.completed" || 
-            (event.type === "conversation.item.create" && 
-             event.item?.content?.some(c => c.type === "input_audio_transcription"))) {
-          const transcriptContent = event.item?.content?.find(c => c.type === "input_audio_transcription");
-          const transcriptText = transcriptContent?.transcript || event.transcript;
-          
-          if (transcriptText) {
-            const transcriptionEvent = {
-              type: "input_audio_transcription.completed",
-              event_id: event.event_id,
-              text: transcriptText,
-              timestamp: event.timestamp || new Date().toLocaleTimeString(),
-              isTranscription: true,
-              isInput: true,
-            };
-            setEvents((prev) => {
-              const filtered = prev.filter(
-                (e) => !(e.isTranscription && e.isInput && e.event_id === transcriptionEvent.event_id)
-              );
-              return [transcriptionEvent, ...filtered];
-            });
-            transcriptionText.current = "";
-            currentTranscriptionId.current = null;
-            return; // Don't add the original event again
-          }
-        }
-        
-        // Handle any other input transcription events with transcript field
-        if (event.transcript && 
-            !event.type?.includes("response") && 
-            !event.type?.includes("output_audio") &&
-            (event.type?.includes("input_audio") || event.type?.includes("transcription"))) {
+        // Handle input audio transcription completed events
+        if (event.type === "input_audio_buffer.transcription.completed" && event.transcript) {
           const transcriptionEvent = {
-            type: event.type || "input_audio_transcription.completed",
+            type: "input_audio_buffer.transcription.completed",
             event_id: event.event_id,
             text: event.transcript,
             timestamp: event.timestamp || new Date().toLocaleTimeString(),
             isTranscription: true,
-            isInput: true,
           };
           setEvents((prev) => {
             const filtered = prev.filter(
-              (e) => !(e.isTranscription && e.isInput && e.event_id === transcriptionEvent.event_id)
+              (e) => !(e.isTranscription && e.event_id === transcriptionEvent.event_id)
             );
             return [transcriptionEvent, ...filtered];
           });
@@ -232,7 +175,10 @@ export default function App() {
           return; // Don't add the original event again
         }
 
-        setEvents((prev) => [event, ...prev]);
+        // Only add transcription-related events, ignore all other events
+        if (!event.type?.includes("transcription") && !event.type?.includes("speech_started")) {
+          return; // Skip non-transcription events
+        }
       });
 
       // Set session active when the data channel is opened
