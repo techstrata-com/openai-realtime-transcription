@@ -226,18 +226,22 @@ export default function App() {
                   type: "near_field"
                 },
                 transcription: {
-                  model: "gpt-4o-transcribe",
+                  model: "gpt-4o-transcribe-latest",
                   language: "en",
                   prompt: "Transcribe the English speech and translate it to Persian (Farsi). Only provide the Persian translation."
                 },
                 turn_detection: {
-                  type: "server_vad",
+                  type: "semantic_vad",
                   threshold: 0.5,
                   prefix_padding_ms: 300,
                   silence_duration_ms: 500
                 }
               }
-            }
+            },
+            "include": [
+              "item.input_audio_transcription.logprobs"
+            ]
+        
           },
         });
         sessionConfigured.current = true;
