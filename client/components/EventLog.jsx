@@ -10,9 +10,7 @@ function Event({ event, timestamp }) {
 
   // Special rendering for input audio transcription events
   if (event.transcript) {
-
-    if (event.type === "output_audio_transcript.done") {
-      const isLive = event.type === "output_audio_transcript.done";
+      const isLive = event.type === "response.output_audio_transcript.delta";
       return (
         <div className="flex flex-col gap-2 p-3 rounded-md bg-blue-50 border-2 border-blue-200">
           <div className="flex items-center gap-2">
@@ -26,7 +24,6 @@ function Event({ event, timestamp }) {
           </div>
         </div>
       );
-    }
   }
 
  
